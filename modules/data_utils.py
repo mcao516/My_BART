@@ -2,10 +2,11 @@
 
 import random
 
+from torch.utils.data import Dataset
 from fairseq.data.language_pair_dataset import collate
 
 
-class DataLoader(object):
+class FairseqDataLoader(object):
     def __init__(self, fairseq_dict, source_path, target_path, max_positions=1024, no_bos=True):
         """
         Args:
@@ -25,8 +26,8 @@ class DataLoader(object):
         self.pad_idx = fairseq_dict.pad()
         self.eos_idx = fairseq_dict.eos()
 
-        source = DataLoader.read_lines(source_path)
-        target = DataLoader.read_lines(target_path)
+        source = FairseqDataLoader.read_lines(source_path)
+        target = FairseqDataLoader.read_lines(target_path)
         assert len(source) == len(target), "Source and target size do NOT match!"
 
         self.data = self.build_sample(source, target)
@@ -99,6 +100,9 @@ class DataLoader(object):
 
     def shuffle(self):
         random.shuffle(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
 
     def __len__(self):
         return len(self.data)

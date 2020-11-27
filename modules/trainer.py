@@ -8,10 +8,14 @@ import logging
 
 from tqdm import tqdm
 
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.optim import Adam
+from torch.nn.utils import clip_grad_norm_
+
 from fairseq.models.bart import BARTModel
 from fairseq.optim.adam import FairseqAdam
-from fairseq.optim.lr_scheduler.polynomial_decay_schedule import PolynomialDecaySchedule
 from fairseq.utils import move_to_cuda
+from fairseq.optim.lr_scheduler.polynomial_decay_schedule import PolynomialDecaySchedule
 
 from modules.criterion import LabelSmoothedCrossEntropyCriterion
 from modules.utils import Progbar
@@ -21,10 +25,11 @@ from modules.model import BARTWrapper
 class Trainer(object):
     """Class for BART model training, evaluation and test."""
 
-    def __init__(self, args, logger):
+    def __init__(self, args, logger, rank):
         super(Trainer, self).__init__()
         self.args = args
         self.logger = logger
+        self.rank = rank
 
         self.optimizer = None
         self.scheduler = None
@@ -40,7 +45,7 @@ class Trainer(object):
 
         # Load BART model
         self._load_bart_model()
-        self.bart = self.bart.to(device=self.device)
+        self.bart = self.bart.to(rank)
 
         # Load source & target dictionary
         self.task = self.bart.task
@@ -48,17 +53,19 @@ class Trainer(object):
 
         # build criterion: module for loss computation
         self._build_criterion()
-        self.criterion = self.criterion.to(device=self.device)
+        self.criterion = self.criterion.to(rank)
 
         # build model: bart encoder/decoder & criterion
         self.model = BARTWrapper(self.bart.model, self.criterion)
-        self.model = self.model.to(device=self.device)
+        self.model = self.model.to(rank)
 
         if torch.cuda.device_count() > 1 and args.multi_gpu:
-            self.logger.info("- Let's use {} GPUs !".format(torch.cuda.device_count()))
-            self.model = nn.DataParallel(self.model)
+            if self.rank == 0:
+                self.logger.info("- Let's use {} GPUs !".format(torch.cuda.device_count()))
+            self.model = DDP(self.model, device_ids=[rank])
         else:
-            self.logger.info("- Train the model on single GPU :/")
+            if self.rank == 0:
+                self.logger.info("- Train the model on single GPU :/")
 
         self._build_optimizer()
         self._build_scheduler()
@@ -174,12 +181,13 @@ class Trainer(object):
 
             if (i + 1) % self.args.update_freq == 0 or (i + 1) == nbatches:
                 # clip accumulated gradients (this should be put inside?)
-                self.clip_grad_norm(self.args.clip_norm)
+                # self.clip_grad_norm(self.args.clip_norm)
+                clip_grad_norm_(self.model.parameters(), self.args.clip_norm)
 
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
-                # emptying the CUDA cache after the first step can reduce the chance of OOM
+                # emptying the CUDA cache after the first step can reduce the chance of OOM (Not sure if it's useful)
                 if self.cuda and self.get_num_updates() == 0:
                     torch.cuda.empty_cache()
 
@@ -206,30 +214,36 @@ class Trainer(object):
 
         best_score, nepoch_no_imprv = 0, 0  # for early stopping
         for epoch in range(self.args.max_epoch):
-            self.logger.info("Epoch {:} out of {:}".format(epoch + 1, self.args.max_epoch))
+            if self.rank == 0:
+                self.logger.info("Epoch {:} out of {:}".format(epoch + 1, self.args.max_epoch))
 
-            train.shuffle()
             logging_outputs = self.run_epoch(train, epoch)
             del logging_outputs
 
             # evaluate the model
+            torch.distributed.barrier()
             self.logger.info('- evaluate on development set...')
-            metrics = self.evaluate(dev)
-            msg = " - ".join(["{} {:04.2f}".format(k, v) for k, v in metrics.items()])
-            self.logger.info(msg)
-            score = metrics["acc"]
 
-            # early stopping and saving best parameters
-            if score >= best_score:
-                nepoch_no_imprv = 0
-                self.save_model()
-                best_score = score
-                self.logger.info("- new best score! ")
-            else:
-                nepoch_no_imprv += 1
-                if nepoch_no_imprv >= self.config.nepoch_no_imprv:
-                    self.logger.info("- early stopping {} epochs without improvement".format(nepoch_no_imprv))
-                    break
+            if self.rank == 0:
+                metrics = self.evaluate(dev)
+            
+                msg = " - ".join(["{} {:04.2f}".format(k, v) for k, v in metrics.items()])
+                self.logger.info(msg)
+                score = metrics["acc"]
+
+                # early stopping and saving best parameters
+                if score >= best_score:
+                    nepoch_no_imprv = 0
+                    self.save_model()
+                    best_score = score
+                    self.logger.info("- new best score! ")
+                else:
+                    nepoch_no_imprv += 1
+                    if nepoch_no_imprv >= self.config.nepoch_no_imprv:
+                        self.logger.info("- early stopping {} epochs without improvement".format(nepoch_no_imprv))
+                        break
+
+            torch.distributed.barrier()
 
     def evaluate(self, dev):
         """Evaluate model on test set.
