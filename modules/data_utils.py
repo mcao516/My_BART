@@ -51,6 +51,20 @@ class FairseqDataLoader(object):
                 files.append(line.strip())
         return files
 
+    def sample_batch(self, ids):
+        """Create a batch of data given ids.
+        """
+        assert len(ids) > 0, "Input IDs must have more than one item!"
+        
+        samples = []
+        for i in ids:
+            samples.append(self.data[i])
+        
+        return collate(samples, self.pad_idx, self.eos_idx, 
+                       left_pad_source=True,
+                       left_pad_target=False,
+                       input_feeding=True)
+
     def batch_iter(self, batch_size):
         """Create a batch of data.
         """

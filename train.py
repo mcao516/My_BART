@@ -8,7 +8,7 @@ import logging
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, BatchSampler
 from torch.utils.data.distributed import DistributedSampler
 
 from fairseq.tasks.translation import TranslationTask
@@ -75,19 +75,18 @@ def main(rank, args, world_size):
     # create datasets
     logger.info('- loading training set...')
     train_dataset = FairseqDataLoader(src_dict, args.train_source, args.train_target,
-                                      max_positions=args.max_positions, no_bos=args.no_bos)
+                                    max_positions=args.max_positions, no_bos=args.no_bos)
     logger.info('- loading development set...')
     dev_dataset = FairseqDataLoader(src_dict, args.dev_source, args.dev_target,
                                     max_positions=args.max_positions, no_bos=False)
 
-    datasampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=datasampler)
-
-    for i, b in train_dataloader:
-        print(i)
+    data_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
+    batch_sampler = BatchSampler(data_sampler, args.batch_size, False)
+    # train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=data_sampler, 
+    #                               collate_fn=None)
 
     # train model
-    trainer.train(train_dataloader, dev_dataset, None)
+    trainer.train(train_dataset, batch_sampler, dev_dataset, None)
 
     # finish process
     cleanup()

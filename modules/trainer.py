@@ -148,7 +148,7 @@ class Trainer(object):
         # self.model = self.bart.model
         self.logger.info("- model restored from: {}".format(model_path))
 
-    def run_epoch(self, train, epoch):
+    def run_epoch(self, train_dataset, train_sampler, epoch):
         """Performs one complete pass over the train set and evaluate on devlopment set.
 
         Args:
@@ -162,17 +162,18 @@ class Trainer(object):
 
         # progbar stuff for logging
         batch_size = self.args.batch_size
-
-        # progress_bar = tqdm(train.batch_iter(batch_size))
-        nbatches = (len(train) + batch_size - 1) // batch_size
+        
+        nbatches = len(train_sampler)
         prog = Progbar(target=nbatches)
+        print('- batch size: {}'.format(nbatches))
 
         # could do this inside the loop
         self._set_seed()
 
         logging_outputs = []
-        for i, batch in enumerate(train.batch_iter(batch_size)):
-            batch = move_to_cuda(batch)
+        for i, batch_ids in enumerate(train_sampler):
+            print(i)
+            batch = move_to_cuda(train_dataset.sample_batch(batch_ids))
 
             loss, nll_loss = self.model(batch["target"], **batch['net_input'])
             loss = loss.mean()  # average losses over all GPUs
@@ -202,13 +203,13 @@ class Trainer(object):
             logging_outputs += [logging_output]
             del loss
 
-            prog.update(i + 1,
-                        values=[("token_loss", logging_output['loss'] / logging_output['ntokens'])],
-                        exact=[("lr", self.get_lr()), ("num_updates", self.get_num_updates())])
+            # prog.update(i + 1,
+            #             values=[("token_loss", logging_output['loss'] / logging_output['ntokens'])],
+            #             exact=[("lr", self.get_lr()), ("num_updates", self.get_num_updates())])
 
         return logging_outputs
 
-    def train(self, train, dev, samples=None):
+    def train(self, train_dataset, train_sampler, dev, samples=None):
         """Train the model and evaluate after each epoch."""
         self.logger.info('- start training...')
 
@@ -217,7 +218,7 @@ class Trainer(object):
             if self.rank == 0:
                 self.logger.info("Epoch {:} out of {:}".format(epoch + 1, self.args.max_epoch))
 
-            logging_outputs = self.run_epoch(train, epoch)
+            logging_outputs = self.run_epoch(train_dataset, train_sampler, epoch)
             del logging_outputs
 
             # evaluate the model
