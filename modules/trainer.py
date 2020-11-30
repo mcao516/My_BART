@@ -164,15 +164,14 @@ class Trainer(object):
         batch_size = self.args.batch_size
         
         nbatches = len(train_sampler)
-        prog = Progbar(target=nbatches)
-        print('- batch size: {}'.format(nbatches))
+        if self.rank == 0:
+            prog = Progbar(target=nbatches)
 
         # could do this inside the loop
         self._set_seed()
 
         logging_outputs = []
         for i, batch_ids in enumerate(train_sampler):
-            print(i)
             batch = move_to_cuda(train_dataset.sample_batch(batch_ids))
 
             loss, nll_loss = self.model(batch["target"], **batch['net_input'])
@@ -203,9 +202,10 @@ class Trainer(object):
             logging_outputs += [logging_output]
             del loss
 
-            # prog.update(i + 1,
-            #             values=[("token_loss", logging_output['loss'] / logging_output['ntokens'])],
-            #             exact=[("lr", self.get_lr()), ("num_updates", self.get_num_updates())])
+            if self.rank == 0:
+                prog.update(i + 1,
+                            values=[("token_loss", logging_output['loss'] / logging_output['ntokens'])],
+                            exact=[("lr", self.get_lr()), ("num_updates", self.get_num_updates())])
 
         return logging_outputs
 

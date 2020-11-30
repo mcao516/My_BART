@@ -67,16 +67,17 @@ def main(rank, args, world_size):
     setup(rank, world_size)
 
     # build trainer
-    logger.info('- build trainer...')
+    logger.info('- build trainer (rank {})...'.format(rank))
     trainer = Trainer(args, logger, rank)
 
     src_dict, tgt_dict = trainer.get_dicts()
 
     # create datasets
-    logger.info('- loading training set...')
+    logger.info('- loading training set (rank {})...'.format(rank))
     train_dataset = FairseqDataLoader(src_dict, args.train_source, args.train_target,
                                     max_positions=args.max_positions, no_bos=args.no_bos)
-    logger.info('- loading development set...')
+    
+    logger.info('- loading development set (rank {})...'.format(rank))
     dev_dataset = FairseqDataLoader(src_dict, args.dev_source, args.dev_target,
                                     max_positions=args.max_positions, no_bos=False)
 
