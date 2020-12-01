@@ -132,12 +132,16 @@ class Trainer(object):
     def clip_grad_norm(self, clip_norm):
         return self.optimizer.clip_grad_norm(clip_norm, aggregate_norm_fn=None)
 
-    def save_model(self):
+    def save_model(self, epoch=None):
         """Saves session = weights"""
         if not os.path.exists(self.args.save_dir):
             os.makedirs(self.args.save_dir)
 
-        save_path = os.path.join(self.args.save_dir, 'checkpoint.pth.tar')
+        if epoch is not None:
+            save_path = os.path.join(self.args.save_dir, 'checkpoint{}.pt'.format(epoch))
+        else:
+            save_path = os.path.join(self.args.save_dir, 'checkpoint.pt')
+        
         torch.save(self.bart.state_dict(), save_path)
         self.logger.info("- model saved at: {}".format(save_path))
 
@@ -148,7 +152,7 @@ class Trainer(object):
         # self.model = self.bart.model
         self.logger.info("- model restored from: {}".format(model_path))
 
-    def run_epoch(self, train_dataset, train_sampler, epoch):
+    def run_epoch(self, train_dataloader, train_sampler, epoch):
         """Performs one complete pass over the train set and evaluate on devlopment set.
 
         Args:
@@ -160,10 +164,10 @@ class Trainer(object):
         self.criterion.train()
         self.optimizer.zero_grad()
 
-        # progbar stuff for logging
         batch_size = self.args.batch_size
+        nbatches = len(train_dataloader)
         
-        nbatches = len(train_sampler)
+        # progbar stuff for logging
         if self.rank == 0:
             prog = Progbar(target=nbatches)
 
@@ -171,8 +175,8 @@ class Trainer(object):
         self._set_seed()
 
         logging_outputs = []
-        for i, batch_ids in enumerate(train_sampler):
-            batch = move_to_cuda(train_dataset.sample_batch(batch_ids))
+        for i, batch in enumerate(train_dataloader):
+            batch = move_to_cuda(batch)
 
             loss, nll_loss = self.model(batch["target"], **batch['net_input'])
             loss = loss.mean()  # average losses over all GPUs
@@ -209,23 +213,24 @@ class Trainer(object):
 
         return logging_outputs
 
-    def train(self, train_dataset, train_sampler, dev, samples=None):
+    def train(self, train_dataloader, train_sampler, dev, samples=None):
         """Train the model and evaluate after each epoch."""
-        self.logger.info('- start training...')
+        if self.rank == 0:
+            self.logger.info('- start training...')
 
         best_score, nepoch_no_imprv = 0, 0  # for early stopping
         for epoch in range(self.args.max_epoch):
             if self.rank == 0:
                 self.logger.info("Epoch {:} out of {:}".format(epoch + 1, self.args.max_epoch))
 
-            logging_outputs = self.run_epoch(train_dataset, train_sampler, epoch)
-            del logging_outputs
+            train_sampler.set_epoch(epoch)
+            logging_outputs = self.run_epoch(train_dataloader, train_sampler, epoch)
 
             # evaluate the model
             torch.distributed.barrier()
-            self.logger.info('- evaluate on development set...')
 
             if self.rank == 0:
+                self.logger.info('- evaluate on development set...')
                 metrics = self.evaluate(dev)
             
                 msg = " - ".join(["{} {:04.2f}".format(k, v) for k, v in metrics.items()])

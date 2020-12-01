@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 from fairseq.data.language_pair_dataset import collate
 
 
-class FairseqDataLoader(object):
+class FairseqDataset(Dataset):
     def __init__(self, fairseq_dict, source_path, target_path, max_positions=1024, no_bos=True):
         """
         Args:
@@ -17,6 +17,8 @@ class FairseqDataLoader(object):
             no_bos (bool): whether append bos token.
 
         """
+        super(FairseqDataset).__init__()
+
         self.fairseq_dict = fairseq_dict
         self.source_path = source_path
         self.target_path = target_path
@@ -26,8 +28,8 @@ class FairseqDataLoader(object):
         self.pad_idx = fairseq_dict.pad()
         self.eos_idx = fairseq_dict.eos()
 
-        source = FairseqDataLoader.read_lines(source_path)
-        target = FairseqDataLoader.read_lines(target_path)
+        source = FairseqDataset.read_lines(source_path)
+        target = FairseqDataset.read_lines(target_path)
         assert len(source) == len(target), "Source and target size do NOT match!"
 
         self.data = self.build_sample(source, target)
@@ -50,20 +52,6 @@ class FairseqDataLoader(object):
             for line in f:
                 files.append(line.strip())
         return files
-
-    def sample_batch(self, ids):
-        """Create a batch of data given ids.
-        """
-        assert len(ids) > 0, "Input IDs must have more than one item!"
-        
-        samples = []
-        for i in ids:
-            samples.append(self.data[i])
-        
-        return collate(samples, self.pad_idx, self.eos_idx, 
-                       left_pad_source=True,
-                       left_pad_target=False,
-                       input_feeding=True)
 
     def batch_iter(self, batch_size):
         """Create a batch of data.
