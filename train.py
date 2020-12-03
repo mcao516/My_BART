@@ -59,7 +59,7 @@ def load_dictionary(path, src_dict_name='source', tgt_dict_name='target'):
 
 def main(rank, args, world_size):
     if rank == 0:
-        logger.info(args)
+        logger.info(vars(args))
 
     # create task & load source and taget dictionary
     # translation_task = TranslationTask.setup_task(args)

@@ -59,7 +59,7 @@ def init_arg_parser():
 
     # training
     parser.add_argument("--multi_gpu", action='store_true', default=True, help="Use multi-gpu for training.")
-    parser.add_argument("--batch_size", default=6, type=int, help="Training batch-size.")
+    parser.add_argument("--batch_size", default=8, type=int, help="Training batch-size.")
     parser.add_argument("--eval_batch_size", default=12, type=int, help="Evaluation batch-size.")
     parser.add_argument("--cpu", action='store_true', help="Use CPU.")
     parser.add_argument("--label_smoothing", default=0.1, type=float, 

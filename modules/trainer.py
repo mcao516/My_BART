@@ -101,7 +101,7 @@ class Trainer(object):
 
     def _load_bart_model(self):
         """Build BART model."""
-        self.logger.info("- loading BART model from: {}".format(self.args.bart_path))
+        self.logger.info("- loading BART model from: {} (rank {})".format(self.args.bart_path, self.rank))
         self.bart = BARTModel.from_pretrained(self.args.bart_path,
                                               checkpoint_file=self.args.checkpoint_file,
                                               data_name_or_path=self.args.data_name_or_path)
@@ -138,7 +138,7 @@ class Trainer(object):
             os.makedirs(self.args.save_dir)
 
         if epoch is not None:
-            save_path = os.path.join(self.args.save_dir, 'checkpoint{}.pt'.format(epoch))
+            save_path = os.path.join(self.args.save_dir, 'checkpoint{}.pt'.format(epoch + 1))
         else:
             save_path = os.path.join(self.args.save_dir, 'checkpoint.pt')
         
@@ -240,7 +240,7 @@ class Trainer(object):
                 # early stopping and saving best parameters
                 if score >= best_score:
                     nepoch_no_imprv = 0
-                    self.save_model()
+                    self.save_model(epoch)
                     best_score = score
                     self.logger.info("- new best score! ")
                 else:
